@@ -1,6 +1,6 @@
 const { App, LogLevel, Assistant } = require('@slack/bolt');
 const { config } = require('dotenv');
-const { OpenAI } = require('openai');
+const OpenAI = require('openai');
 
 config();
 
@@ -12,16 +12,11 @@ const app = new App({
   logLevel: LogLevel.DEBUG,
 });
 
-/** OpenAI Setup */
+// OpenAI configuration
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
+  baseURL: process.env.OPENAI_API_BASE_URL || 'https://api.openai.com/v1', // Allow custom endpoint
 });
-
-const DEFAULT_SYSTEM_CONTENT = `You're an assistant in a Slack workspace.
-Users in the workspace will ask you to help them write something or to think better about a specific topic.
-You'll respond to those questions in a professional way.
-When you include markdown text, convert them to Slack compatible ones.
-When a prompt has Slack's special syntax like <@USER_ID> or <#CHANNEL_ID>, you must keep them as-is in your response.`;
 
 const assistant = new Assistant({
   /**
@@ -49,27 +44,32 @@ const assistant = new Assistant({
       // whenever the user changes context (via the `assistant_thread_context_changed` event).
       // The `say` utility sends this metadata along automatically behind the scenes.
       // !! Please note: this is only intended for development and demonstrative purposes.
-      await say('Hi, how can I help?');
+      await say('Hi, This is the DigitalOcean Docs AI. How can I help you today?');
 
       await saveThreadContext();
 
       const prompts = [
         {
-          title: 'This is a suggested prompt',
-          message:
-            'When a user clicks a prompt, the resulting prompt message text can be passed ' +
-            'directly to your LLM for processing.\n\nAssistant, please create some helpful prompts ' +
-            'I can provide to my users.',
+          title: 'How do I create a Droplet?',
+          message: 'How do I create a Droplet?',
+        },
+        {
+          title: 'How do I set up a domain?',
+          message: 'How do I set up and configure a domain?',
+        },
+        {
+          title: 'How do I deploy an app on App Platform?',
+          message: 'What are the steps to deploy an application on App Platform?',
         },
       ];
 
       // If the user opens the Assistant container in a channel, additional
-      // context is available.This can be used to provide conditional prompts
+      // context is available. This can be used to provide conditional prompts
       // that only make sense to appear in that context (like summarizing a channel).
       if (context.channel_id) {
         prompts.push({
-          title: 'Summarize channel',
-          message: 'Assistant, please summarize the activity in this channel!',
+          title: 'Can you help me solve my DigitalOcean issue?',
+          message: 'Based on the recent conversation in this channel, can you help me solve my DigitalOcean issue?',
         });
       }
 
@@ -79,7 +79,7 @@ const assistant = new Assistant({
        * not, provided, 'Try these prompts:' will be displayed.
        * https://api.slack.com/methods/assistant.threads.setSuggestedPrompts
        */
-      await setSuggestedPrompts({ prompts, title: 'Here are some suggested options:' });
+      await setSuggestedPrompts({ prompts, title: 'Try these prompts:' });
     } catch (e) {
       logger.error(e);
     }
@@ -127,7 +127,7 @@ const assistant = new Assistant({
        * The example below uses a prompt that relies on the context (channel) in which
        * the user has asked the question (in this case, to summarize that channel).
        */
-      if (message.text === 'Assistant, please summarize the activity in this channel!') {
+      if (message.text === 'Based on the recent conversation in this channel, can you help me solve my DigitalOcean issue?') {
         const threadContext = await getThreadContext();
         let channelHistory;
 
@@ -151,21 +151,18 @@ const assistant = new Assistant({
         }
 
         // Prepare and tag the prompt and messages for LLM processing
-        let llmPrompt = `Please generate a brief summary of the following messages from Slack channel <#${threadContext.channel_id}>:`;
+        let llmPrompt = `Please analyze the following messages from Slack channel <#${threadContext.channel_id}> and help the user with their DigitalOcean-related issue:`;
         for (const m of channelHistory.messages.reverse()) {
           if (m.user) llmPrompt += `\n<@${m.user}> says: ${m.text}`;
         }
 
-        const messages = [
-          { role: 'system', content: DEFAULT_SYSTEM_CONTENT },
-          { role: 'user', content: llmPrompt },
-        ];
+        const messages = [{ role: 'user', content: llmPrompt }];
 
         // Send channel history and prepared request to LLM
         const llmResponse = await openai.chat.completions.create({
-          model: 'gpt-4o-mini',
-          n: 1,
+          model: process.env.OPENAI_MODEL || 'gpt-3.5-turbo',
           messages,
+          max_tokens: 2000,
         });
 
         // Provide a response to the user
@@ -192,13 +189,13 @@ const assistant = new Assistant({
         return { role, content: m.text };
       });
 
-      const messages = [{ role: 'system', content: DEFAULT_SYSTEM_CONTENT }, ...threadHistory, userMessage];
+      const messages = [...threadHistory, userMessage];
 
       // Send message history and newest question to LLM
       const llmResponse = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        n: 1,
+        model: process.env.OPENAI_MODEL || 'gpt-3.5-turbo',
         messages,
+        max_tokens: 2000,
       });
 
       // Provide a response to the user
